@@ -1,0 +1,66 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_DEFAULT_REGION = 'us-east-1'
+        CLUSTER_NAME = 'my-demo-cluster'
+        KUBE_CONFIG_PATH = '/var/lib/jenkins/.kube/config'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout([
+                    $class: 'GitSCM', 
+                    branches: [[name: '*/main']], 
+                    userRemoteConfigs: [[
+                        url: 'https://github.com/maheshbelkhude/Devops_test.git', 
+                        credentialsId: '6acf10f7-97fd-4a0f-a27f-5d6c3d6f8f55'
+                    ]]
+                ])
+            }
+        }
+
+        stage('Configure AWS & Kubectl') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'AWS-EKS-01']]) {
+                    sh '''
+                    aws eks update-kubeconfig --region $AWS_DEFAULT_REGION --name $CLUSTER_NAME
+                    '''
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh "docker build -t belkhudemahesh/python_app:${BUILD_NUMBER} ."
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                withDockerRegistry([credentialsId: 'dockerhub_mahesh_cred', url: 'https://index.docker.io/v1/']) {
+                    sh "docker push belkhudemahesh/python_app:${BUILD_NUMBER}"
+                }
+            }
+        }
+
+        stage('Update Deployment YAML for Image') {
+            steps {
+                sh """
+                sed -i 's|my-dockerhub-username/my-python-app:BUILD_NUMBER|belkhudemahesh/python_app:${BUILD_NUMBER}|' deployment.yaml
+                """
+            }
+        }
+
+        stage('Deploy to EKS') {
+            steps {
+                sh """
+                kubectl apply -f deployment.yaml
+                kubectl apply -f service.yaml
+                kubectl apply -f hpa.yaml
+                """
+            }
+        }
+    }
+}

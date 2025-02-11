@@ -1,0 +1,38 @@
+#!/bin/bash
+
+# Define AWS S3 bucket name
+S3_BUCKET="my-postgresbucket"
+
+# Define PostgreSQL credentials
+PG_USER="postgres"
+PG_HOST="localhost"
+BASE_BACKUP_DIR="/home/sysops/postgres_backups"
+
+# Export PostgreSQL password to avoid interactive prompt
+export PGPASSWORD=$PG_PASSWORD
+
+# Create the main backup directory if it does not exist
+mkdir -p $BASE_BACKUP_DIR
+
+# Get the list of all databases
+DB_LIST=("postgres" "testdb")
+
+# Loop through all databases and back them up
+for DB in "${DB_LIST[@]}"; do
+    TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
+    DB_BACKUP_DIR="$BASE_BACKUP_DIR/$DB"
+    BACKUP_FILE="$DB_BACKUP_DIR/${DB}_${TIMESTAMP}.sql.gz"
+
+    # Create a separate directory for each database
+    mkdir -p $DB_BACKUP_DIR
+
+    echo "Backing up database $DB"
+    pg_dump -U $PG_USER -h $PG_HOST -F c $DB | gzip > $BACKUP_FILE
+
+    echo "Uploading $BACKUP_FILE to S3"
+    aws s3 cp $BACKUP_FILE s3://$S3_BUCKET/$DB/
+
+    # Remove the local backup after upload
+    rm -f $BACKUP_FILE
+done
+echo "All databases have been backed up and uploaded to S3 successfully"

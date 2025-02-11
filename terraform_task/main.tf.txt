@@ -1,0 +1,79 @@
+provider "aws" {
+  region = "us-east-1"
+}
+
+resource "aws_vpc" "my_vpc" {
+  cidr_block = "10.0.0.0/16"
+
+  tags = {
+    Name = "MyVPC"
+  }
+}
+resource "aws_subnet" "public_subnets" {
+  count                   = 3
+  vpc_id                  = aws_vpc.my_vpc.id
+  cidr_block              = "10.0.${count.index}.0/24"
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "Public-Subnet-${count.index + 1}"
+  }
+}
+resource "aws_subnet" "private_subnets" {
+  count      = 3
+  vpc_id     = aws_vpc.my_vpc.id
+  cidr_block = "10.0.${count.index + 3}.0/24"
+
+  tags = {
+    Name = "Private-Subnet-${count.index + 1}"
+  }
+}
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.my_vpc.id
+
+  tags = {
+    Name = "My-Internet-Gateway"
+  }
+}
+resource "aws_route_table" "public_rt" {
+  vpc_id = aws_vpc.my_vpc.id
+
+  tags = {
+    Name = "Public-Route-Table"
+  }
+}
+resource "aws_route" "public_internet_access" {
+  route_table_id         = aws_route_table.public_rt.id
+  destination_cidr_block = "0.0.0.0/0"
+  gateway_id             = aws_internet_gateway.igw.id
+}
+resource "aws_eip" "nat" {
+  count = 3
+
+  tags = {
+    Name = "Elastic-IP-${count.index + 1}"
+  }
+}
+resource "aws_nat_gateway" "nat" {
+  count         = 3
+  subnet_id     = element(aws_subnet.public_subnets[*].id, count.index)
+  allocation_id = element(aws_eip.nat[*].id, count.index)
+
+  tags = {
+    Name = "NAT-Gateway-${count.index + 1}"
+  }
+}
+resource "aws_route_table" "private_rt" {
+  count  = 3
+  vpc_id = aws_vpc.my_vpc.id
+
+  tags = {
+    Name = "Private-Route-Table-${count.index + 1}"
+  }
+}
+resource "aws_route" "private_nat_access" {
+  count                   = 3
+  route_table_id          = aws_route_table.private_rt[count.index].id
+  destination_cidr_block  = "0.0.0.0/0"
+  nat_gateway_id          = aws_nat_gateway.nat[count.index].id
+}
